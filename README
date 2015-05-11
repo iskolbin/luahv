@@ -2,7 +2,7 @@ Homogenouous vectors for Lua 5.2.
 
 Compiling with gcc:
 	gcc -c -fPIC -llua -I/usr/include/lua5.2 hv.c
-  gcc -shared -o hv.so hv.o
+	gcc -shared -o hv.so hv.o
 
 Supported C-types:
 	int, char, int8, int16, int32, int64, uint8, uint16, uint32, uint64, float, double
@@ -41,4 +41,3 @@ Assembler:
 		get -- move value from vector to register (Ex: get 1 200 1)
 		set -- move value from register to vector (Ex: set 1 200 1)
 		fill -- fill vector with value from register (Ex: fill 1 1)
-			
