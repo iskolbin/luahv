@@ -1,2 +1,4 @@
-hv.so
-hv.o
+*.so
+*.o
+*.swp
+
