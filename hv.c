@@ -1,9 +1,51 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include "lua.h"
-#include "lauxlib.h"
-#include "lualib.h"
+#include <lua.h>
+#include <lauxlib.h>
+#include <lualib.h>
+
+/* start indexing at 1: HV_ORIGIN 1 */
+#define HV_ORIGIN 0
+
+#if (LUA_VERSION_NUM<=501)
+#define lua_len(L,i) (lua_pushnumber( (L), lua_objlen( (L), (i) )))
+#define luaL_newlib(L,l) (lua_newtable(L), luaL_register(L,NULL,l))
+
+static void *luaL_testudata (lua_State *L, int ud, const char *tname);
+static void luaL_setfuncs (lua_State *L, const luaL_Reg *l, int nup);
+
+void luaL_setfuncs (lua_State *L, const luaL_Reg *l, int nup) {
+  luaL_checkstack(L, nup, "too many upvalues");
+  for (; l->name != NULL; l++) {  /* fill the table with given functions */
+    int i;
+    for (i = 0; i < nup; i++)  /* copy upvalues to the top */
+      lua_pushvalue(L, -nup);
+    lua_pushcclosure(L, l->func, nup);  /* closure with those upvalues */
+    lua_setfield(L, -(nup + 2), l->name);
+  }
+  lua_pop(L, nup);  /* remove upvalues */
+}
+
+void *luaL_testudata (lua_State *L, int ud, const char *tname) {
+	void *p = lua_touserdata(L, ud);
+	if (p != NULL) {  /* value is a userdata? */
+		if (lua_getmetatable(L, ud)) {  /* does it have a metatable? */
+			luaL_getmetatable(L, tname);  /* get correct metatable */
+			if (!lua_rawequal(L, -1, -2))  /* not the same? */
+				p = NULL;  /* value is a userdata with wrong metatable */
+			lua_pop(L, 2);  /* remove both metatables */
+			return p;
+		}
+	}
+	return NULL;  /* value is not a userdata with a metatable */
+}
+#endif
+
+#ifdef _WIN32
+__declspec (dllexport)
+#endif
+int luaopen_luahv( lua_State *L );
 
 #define HV_LOAD_VECTOR_MT(TYPE) \
 	luaL_newmetatable( L, #TYPE ".vector" ); \
@@ -15,7 +57,7 @@
 	vector##TYPE *vec1 = luaL_checkudata( L, 1, #TYPE ".vector" ); \
 	vector##TYPE *vec2 = luaL_checkudata( L, 2, #TYPE ".vector" ); \
 	vector##TYPE *res; \
-	int i;\
+	size_t i;\
 	luaL_argcheck( L, vec1 != NULL, 1, "'" #TYPE ".vector' expected" ); \
 	luaL_argcheck( L, vec2 != NULL, 2, "'" #TYPE ".vector' expected" ); \
 
@@ -32,17 +74,28 @@
 	for ( i = 0; i < res->size; i++ ) { \
 		res->values[i] = vec1->values[i] OPERATION vec2->values[i]; \
 	} \
-	return 1; }\
+	return 1; }
+
+#define HV_UNARY_EVAL(TYPE,OPERATION) { \
+	vector##TYPE *vec1 = luaL_checkudata( L, 1, #TYPE ".vector" ); \
+	vector##TYPE *res; \
+	size_t i;\
+	luaL_argcheck( L, vec1 != NULL, 1, "'" #TYPE ".vector' expected" ); \
+	res = makevector##TYPE( L, vec1->size ); \
+	for ( i = 0; i < res->size; i++ ) { \
+		res->values[i] = OPERATION vec1->values[i]; \
+	} \
+	return 1; }
 		
 #define HV_MAKE_VECTOR(TYPE,TYPE_POP,TYPE_PUSH) \
 \
 typedef struct {  \
-	int size; \
+	size_t size; \
 	TYPE values[1]; \
 } vector##TYPE ; \
 \
 static vector##TYPE *makevector##TYPE( lua_State *L, int n ) { \
-	int i; \
+	size_t i; \
 	vector##TYPE *vec = lua_newuserdata( L, sizeof( *vec ) + n*sizeof( TYPE )); \
 	vec->size = n; \
 	luaL_getmetatable( L, #TYPE ".vector" ); \
@@ -51,9 +104,9 @@ static vector##TYPE *makevector##TYPE( lua_State *L, int n ) { \
 } \
 \
 static int newvector##TYPE ( lua_State *L ) { \
-	int i; \
+	size_t i; \
 	vector##TYPE *vec; \
-	int n = luaL_checkint( L, 1 ); \
+	size_t n = luaL_checkint( L, 1 ); \
 	TYPE v = lua_tonumber( L, 2 ); \
 	luaL_argcheck( L, n >= 1, 1, "invalid size" ); \
 	vec = makevector##TYPE( L, n ); \
@@ -63,7 +116,7 @@ static int newvector##TYPE ( lua_State *L ) { \
 \
 static int setvector##TYPE ( lua_State *L ) { \
 	vector##TYPE *vec = luaL_checkudata( L, 1, #TYPE ".vector" ); \
-	int index = luaL_checkint( L, 2 ) - 1; \
+	size_t index = luaL_checkint( L, 2 ) - HV_ORIGIN; \
 	luaL_argcheck( L, vec != NULL, 1, "'" #TYPE ".vector' expected" ); \
 	luaL_argcheck( L, 0 <= index && index < vec->size, 2, "index out of range" ); \
 	vec->values[index] = TYPE_POP( L, 3 ); \
@@ -72,7 +125,7 @@ static int setvector##TYPE ( lua_State *L ) { \
 \
 static int getvector##TYPE ( lua_State *L ) { \
 	vector##TYPE *vec = luaL_checkudata( L, 1, #TYPE ".vector" ); \
-	int index = luaL_checkint( L, 2 ) - 1; \
+	size_t index = luaL_checkint( L, 2 ) - HV_ORIGIN; \
 	luaL_argcheck( L, vec != NULL, 1, "'" #TYPE ".vector' expected" ); \
 	luaL_argcheck( L, 0 <= index && index < vec->size, 2, "index out of range" ); \
 	TYPE_PUSH( L, vec->values[index] ); \
@@ -119,7 +172,7 @@ static int eqvector##TYPE ( lua_State *L ) { \
 static int unmvector##TYPE ( lua_State *L ) {\
 	vector##TYPE *vec = luaL_checkudata( L, 1, #TYPE ".vector" ); \
 	vector##TYPE *res; \
-	int i;\
+	size_t i;\
 	luaL_argcheck( L, vec != NULL, 1, "'" #TYPE ".vector' expected" ); \
 	res = makevector##TYPE( L, vec->size ); \
 	for ( i = 0; i < res->size; i++ ) { \
@@ -130,7 +183,7 @@ static int unmvector##TYPE ( lua_State *L ) {\
 \
 static int tostringvector##TYPE ( lua_State *L ) { \
 	vector##TYPE *vec = luaL_checkudata( L, 1, #TYPE ".vector" ); \
-	int i;\
+	size_t i;\
 	luaL_argcheck( L, vec != NULL, 1, "'" #TYPE ".vector' expected" ); \
 	lua_pushstring( L, "{" ); \
 	for ( i = 0; i < vec->size; i++ ) { \
@@ -142,9 +195,9 @@ static int tostringvector##TYPE ( lua_State *L ) { \
 	return 1; \
 } \
 \
-static int TYPE##totable( lua_State *L ) { \
+static int totable##TYPE( lua_State *L ) { \
 	vector##TYPE *vec = luaL_checkudata( L, 1, #TYPE ".vector" ); \
-	int i;\
+	size_t i;\
 	luaL_argcheck( L, vec != NULL, 1, "'" #TYPE ".vector' expected" ); \
 	lua_newtable(L); \
 	for ( i = 0; i < vec->size; i++ ) { \
@@ -154,12 +207,10 @@ static int TYPE##totable( lua_State *L ) { \
 	return 1; \
 } \
 \
-static int tableto##TYPE ( lua_State *L ) { \
+static int from##TYPE( lua_State *L ) { \
 	if ( lua_istable( L, 1 )) {\
-		int i;\
-		int n;\
+		size_t i, n;\
 	 	vector##TYPE *res;\
-	 	\
 		lua_len( L, 1 );\
 		n = lua_tointeger( L, -1 );\
 		res = makevector##TYPE( L, n );\
@@ -181,8 +232,33 @@ static int is##TYPE ( lua_State *L ) { \
 		lua_pushboolean( L, 0 ); \
 	} \
 	return 1; \
-} \
-\
+}
+
+#define HV_MAKE_INT_VECTOR(TYPE,POP,PUSH) HV_MAKE_VECTOR(TYPE,POP,PUSH) \
+static int mod##TYPE ( lua_State *L ) HV_BINARY_EVAL(TYPE,%) \
+static int not##TYPE ( lua_State *L ) HV_UNARY_EVAL(TYPE,~)  \
+static int and##TYPE ( lua_State *L ) HV_BINARY_EVAL(TYPE,&) \
+static int xor##TYPE ( lua_State *L ) HV_BINARY_EVAL(TYPE,^) \
+static int or##TYPE  ( lua_State *L ) HV_BINARY_EVAL(TYPE,|) \
+static int rshift##TYPE ( lua_State *L ) HV_BINARY_EVAL(TYPE,>>) \
+static int lshift##TYPE ( lua_State *L ) HV_BINARY_EVAL(TYPE,<<) \
+static const struct luaL_Reg vectormt_##TYPE [] = { \
+	{"__newindex", setvector##TYPE}, \
+	{"__index", getvector##TYPE}, \
+	{"__len", sizevector##TYPE}, \
+	{"__add", addvector##TYPE}, \
+	{"__sub", subvector##TYPE}, \
+	{"__mul", mulvector##TYPE}, \
+	{"__div", divvector##TYPE}, \
+	{"__mod", mod##TYPE}, \
+	{"__concat", concatvector##TYPE}, \
+	{"__eq", eqvector##TYPE}, \
+	{"__tostring", tostringvector##TYPE}, \
+	{"__unm", unmvector##TYPE}, \
+	{NULL, NULL} \
+};
+
+#define HV_MAKE_FLOAT_VECTOR(TYPE,POP,PUSH) HV_MAKE_VECTOR(TYPE,POP,PUSH) \
 static const struct luaL_Reg vectormt_##TYPE [] = { \
 	{"__newindex", setvector##TYPE}, \
 	{"__index", getvector##TYPE}, \
@@ -196,53 +272,34 @@ static const struct luaL_Reg vectormt_##TYPE [] = { \
 	{"__tostring", tostringvector##TYPE}, \
 	{"__unm", unmvector##TYPE}, \
 	{NULL, NULL} \
-}; \
+};
 
-HV_MAKE_VECTOR( int, luaL_checknumber, lua_pushnumber );
-HV_MAKE_VECTOR( char, luaL_checknumber, lua_pushnumber );
-HV_MAKE_VECTOR( int8_t, luaL_checknumber, lua_pushnumber );
-HV_MAKE_VECTOR( int16_t, luaL_checknumber, lua_pushnumber );
-HV_MAKE_VECTOR( int32_t, luaL_checknumber, lua_pushnumber );
-HV_MAKE_VECTOR( int64_t, luaL_checknumber, lua_pushnumber );
-HV_MAKE_VECTOR( uint8_t, luaL_checknumber, lua_pushnumber );
-HV_MAKE_VECTOR( uint16_t, luaL_checknumber, lua_pushnumber );
-HV_MAKE_VECTOR( uint32_t, luaL_checknumber, lua_pushnumber );
-HV_MAKE_VECTOR( uint64_t, luaL_checknumber, lua_pushnumber );
-HV_MAKE_VECTOR( float, luaL_checknumber, lua_pushnumber );
-HV_MAKE_VECTOR( double, luaL_checknumber, lua_pushnumber );
+HV_MAKE_INT_VECTOR( int8_t, luaL_checknumber, lua_pushnumber );
+HV_MAKE_INT_VECTOR( int16_t, luaL_checknumber, lua_pushnumber );
+HV_MAKE_INT_VECTOR( int32_t, luaL_checknumber, lua_pushnumber );
+HV_MAKE_INT_VECTOR( int64_t, luaL_checknumber, lua_pushnumber );
+HV_MAKE_INT_VECTOR( uint8_t, luaL_checknumber, lua_pushnumber );
+HV_MAKE_INT_VECTOR( uint16_t, luaL_checknumber, lua_pushnumber );
+HV_MAKE_INT_VECTOR( uint32_t, luaL_checknumber, lua_pushnumber );
+HV_MAKE_INT_VECTOR( uint64_t, luaL_checknumber, lua_pushnumber );
+HV_MAKE_FLOAT_VECTOR( float, luaL_checknumber, lua_pushnumber );
+HV_MAKE_FLOAT_VECTOR( double, luaL_checknumber, lua_pushnumber );
 
-#define HV_MAKE_EXPAND_FRONT(ARG) \
-	{ #ARG "i", ARG##int },\
-	{ #ARG "c", ARG##char },\
-	{ #ARG "i8", ARG##int8_t },\
-	{ #ARG "i16", ARG##int16_t },\
-	{ #ARG "i32", ARG##int32_t },\
-	{ #ARG "i64", ARG##int64_t },\
-	{ #ARG "u8", ARG##uint8_t },\
-	{ #ARG "u16", ARG##uint16_t },\
-	{ #ARG "u32", ARG##uint32_t },\
-	{ #ARG "u64", ARG##uint64_t },\
-	{ #ARG "f32", ARG##float },\
-	{ #ARG "f64", ARG##double },\
+#define HV_MAKE_EXPAND_INT(ARG) \
+	{  "i8" #ARG, ARG##int8_t   },\
+	{ "i16" #ARG, ARG##int16_t  },\
+	{ "i32" #ARG, ARG##int32_t  },\
+	{ "i64" #ARG, ARG##int64_t  },\
+	{  "u8" #ARG, ARG##uint8_t  },\
+	{ "u16" #ARG, ARG##uint16_t },\
+	{ "u32" #ARG, ARG##uint32_t },\
+	{ "u64" #ARG, ARG##uint64_t },
 
-#define HV_MAKE_EXPAND_BACK(ARG) \
-	{ "i" #ARG, int##ARG },\
-	{ "c" #ARG, char##ARG },\
-	{ "i8" #ARG, int8_t##ARG },\
-	{ "i16" #ARG, int16_t##ARG },\
-	{ "i32" #ARG, int32_t##ARG },\
-	{ "i64" #ARG, int64_t##ARG },\
-	{ "u8" #ARG, uint8_t##ARG },\
-	{ "u16" #ARG, uint16_t##ARG },\
-	{ "u32" #ARG, uint32_t##ARG },\
-	{ "u64" #ARG, uint64_t##ARG },\
-	{ "f32" #ARG, float##ARG },\
-	{ "f64" #ARG, double##ARG },\
-
+#define HV_MAKE_EXPAND_FLOAT(ARG) \
+	{ #ARG "f32", ARG##float  },\
+	{ #ARG "f64", ARG##double },
 
 static const struct luaL_Reg hvlib [] = {
-	HV_ADD_VECTOR_MT( "i", int ),
-	HV_ADD_VECTOR_MT( "c", char ),
 	HV_ADD_VECTOR_MT( "i8", int8_t ),
 	HV_ADD_VECTOR_MT( "i16", int16_t ),
 	HV_ADD_VECTOR_MT( "i32", int32_t ),
@@ -253,15 +310,19 @@ static const struct luaL_Reg hvlib [] = {
 	HV_ADD_VECTOR_MT( "u64", uint64_t ),
 	HV_ADD_VECTOR_MT( "f32", float ),
 	HV_ADD_VECTOR_MT( "f64", double ),
-	HV_MAKE_EXPAND_FRONT(is)
-	HV_MAKE_EXPAND_FRONT(tableto)
-	HV_MAKE_EXPAND_BACK(totable)
+	HV_MAKE_EXPAND_INT(is)
+	HV_MAKE_EXPAND_INT(totable)
+	HV_MAKE_EXPAND_INT(lshift)
+	HV_MAKE_EXPAND_INT(rshift)
+	HV_MAKE_EXPAND_INT(not)
+	HV_MAKE_EXPAND_INT(xor)
+	HV_MAKE_EXPAND_INT(or)
+	HV_MAKE_EXPAND_FLOAT(is)
+	HV_MAKE_EXPAND_FLOAT(totable)
 	{NULL, NULL}
 };
 
 int luaopen_hv( lua_State *L ) {
-	HV_LOAD_VECTOR_MT( int );
-	HV_LOAD_VECTOR_MT( char );
 	HV_LOAD_VECTOR_MT( int8_t );
 	HV_LOAD_VECTOR_MT( int16_t );
 	HV_LOAD_VECTOR_MT( int32_t );
@@ -275,7 +336,3 @@ int luaopen_hv( lua_State *L ) {
 	luaL_newlib( L, hvlib );
 	return 1;
 }
-
-#undef HV_MAKE_VECTOR
-#undef HV_ADD_VECTOR_MT
-#undef HV_LOAD_VECTOR_MT

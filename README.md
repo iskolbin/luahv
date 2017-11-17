@@ -5,14 +5,23 @@ Use luarocks to compile.
 
 Supported C-types:
 ------------------
-int, char, int8, int16, int32, int64, uint8, uint16, uint32, uint64, float, double
+ * *int8_t* `hv.i8`
+ * *int16_t* `hv.i16`
+ * *int32_t* `hv.i32`
+ * *int64_t* `hv.i64`
+ * *uint8_t* `hv.u8`
+ * *uint16_t* `hv.u16`
+ * *uint32_t* `hv.u32`
+ * *uint64_t* `hv.u64`
+ * *float* `hv.f32`
+ * *double* `hv.f64`
 
 Example usage:
 --------------
 ```
 local hv = require 'hv'
-local x = hv.int( 10 )    -- 10 is the size of vector
-local y = hv.int( 10, 2 ) -- 2 is fill value ( by default 0 so x elements are zeroes )	
+local x = hv.i32( 10 )    -- 10 is the size of vector
+local y = hv.i32( 10, 2 ) -- 2 is fill value ( by default 0 so x elements are zeroes )	
 x[1] = 5 -- indexing is 1-based
 x[2] = 6 
 local z = x + y

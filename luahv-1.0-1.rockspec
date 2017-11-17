@@ -11,7 +11,7 @@ description = {
 	license = 'MIT/X11',
 }
 dependencies = {
-	'lua >= 5.2'
+	'lua >= 5.1'
 }
 build = {
 	type = 'builtin',
