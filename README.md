@@ -1,5 +1,5 @@
-Homogenouous vectors for Lua 5.2
-================================
+Homogeneous vectors for Lua 5.2
+===============================
 
 Use luarocks to compile.
 
